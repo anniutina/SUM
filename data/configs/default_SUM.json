@@ -1,0 +1,41 @@
+{
+  "avg_speed": 6,
+  "speeds": {
+    "walk": 1.2
+  },
+  "ticket_price": 0.175,
+  "walk_factor": 2,
+  "wait_factor": 2,
+  "transfer_penalty": 500,
+  "shared_discount": 0.4,
+  "VoT": 0.0035,
+  "WtS": 1.3,
+  "delay_value": 1,
+  "price": 1.5,
+  "matching_obj": "u_veh",
+  "pax_delay": 15,
+  "horizon": 1200,
+  "profitability": false,
+  "paths": {
+    "main": "ExMAS",
+    "data": "data",
+    "params": "data/configs",
+    "postcodes": "ExMAS/data/postcodes/PC4_Poland_2024.shp",
+    "albatross": "ExMAS/data/albatross",
+    "G": "ExMAS/data/graphs/Krakow.graphml",
+    "skim": "ExMAS/data/graphs/Krakow.csv"
+  },
+  "nP": 2666,
+  "city": "Krakow, Poland",
+  "simTime": 1,
+  "dist_threshold": 100000,
+  "demand_structure": {
+    "origins_dispertion": -0.0003,
+    "destinations_dispertion": -0.001,
+    "temporal_dispertion": 0.3,
+    "temporal_distribution": "uniform"
+  },
+  "max_degree": 8,
+  "t0": "8:00",
+  "G": "Krakow.graphml"
+}
