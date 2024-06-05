@@ -8,9 +8,6 @@ The software was implemented using Python programming language and its basic lib
 ### The developed framework is based on two main developed libraries:
 * [Public Transport queries](https://github.com/RafalKucharskiPK/query_PT)
 * [ExMAS](https://github.com/RafalKucharskiPK/ExMAS/tree/master/ExMAS)
-### A module 'The parameter-free comparison of selected areas for Krakow' consists of:
-* [PT_mode](https://github.com/OlhaShulikaUJ/SUM_project/tree/main/PT)
-* [NSM+PT_mode](https://github.com/OlhaShulikaUJ/SUM_project/tree/main/NSM%2BPT)
 ### The roadmap of the current project for the city:
 1) OD
    * sample origins
