@@ -56,7 +56,7 @@ $$
 * both OSM and GTFS files should be stored in the data folder
 
 ## Output:
-* csv with results
+* [csv](https://github.com/anniutina/SUM/tree/main/results) with results
 
 ## Usage:
 * Utilities, Mode choice, Demand NSM definitions in this [notebook](https://github.com/anniutina/SUM/blob/main/sum_main.ipynb)
