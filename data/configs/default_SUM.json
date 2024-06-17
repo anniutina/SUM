@@ -1,14 +1,16 @@
 {
   "avg_speed": 6,
+  "transfertime": 30,
   "speeds": {
-    "walk": 1.2
+    "walk": 1.2,
+    "ride": 6
   },
   "ticket_price": 0.175,
   "walk_factor": 2,
   "wait_factor": 2,
   "transfer_penalty": 500,
-  "shared_discount": 0.4,
-  "VoT": 0.0035,
+  "shared_discount": 0.2,
+  "VoT": 0.003,
   "WtS": 1.3,
   "delay_value": 1,
   "price": 1.5,
@@ -21,13 +23,12 @@
     "data": "data",
     "params": "data/configs",
     "postcodes": "ExMAS/data/postcodes/PC4_Poland_2024.shp",
-    "albatross": "ExMAS/data/albatross",
-    "G": "ExMAS/data/graphs/Krakow.graphml",
-    "skim": "ExMAS/data/graphs/Krakow.csv"
+    "G": "data/graphs/Krakow.graphml",
+    "skim": "data/graphs/Krakow.csv"
   },
   "nP": 2666,
   "city": "Krakow, Poland",
-  "simTime": 1,
+  "simTime": 0.5,
   "dist_threshold": 100000,
   "demand_structure": {
     "origins_dispertion": -0.0003,
@@ -36,6 +37,5 @@
     "temporal_distribution": "uniform"
   },
   "max_degree": 8,
-  "t0": "8:00",
-  "G": "Krakow.graphml"
+  "t0": "7:00"
 }

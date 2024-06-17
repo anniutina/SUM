@@ -1,23 +1,30 @@
-from ExMAS import main
-from query_PT import main as qpt_main
-import requests
 import pandas as pd
+import numpy as np
 import osmnx as ox
 import geopandas as gpd
 from shapely.geometry import Point
-from shapely.geometry import Polygon
-import numpy as np
+# from shapely.geometry import Polygon
 import random
 import datetime as dt
+import requests
 from pyproj import Transformer
 import geopandas as gpd
-from shapely.geometry import Point
-import datetime
+import math
+
+from ExMAS import main
+from query_PT import main as qpt_main
 
 # To calculate sample size
 KRA_17 = 767348     # Krakow population for 2017
 KRA_23 = 804200     # Krakow population for 2023
 COEF = KRA_23 / KRA_17
+def sample_size(od, df):
+    '''calculate area production:
+    number of travellers leaving the area during the morning rush hour
+    input: od - ODM, df - area demographic with assigned city zone numbers
+    output: int, sample size
+    '''
+    return round((sum(od[(od['zone_NO'].isin(df['zone_NO'].unique()))]['sum'])) / 2 * COEF)
 
 def transform_coords(source_crs, target_crs, x, y):
     '''transforms point coordinates from the source coordinate system to the target
@@ -34,8 +41,18 @@ def find_containing_polygon(point: Point, gdf: gpd) -> float:
             return gdf.NO[i]
     return None
 
+def haversine(loc1, loc2):
+    ''' Haversine formula [km]
+        coordinates in decimal degrees (y, x), e.g. (19.881557, 50.012738)'''
+    # latitude is the y-coordinate, longitude is the x-coordinate
+    Earth_radius = 6371  # [km];   R = 3959.87433 [mi]
+    lat1, lon1 = np.radians((loc1[0], loc1[1]))
+    lat2, lon2 = np.radians((loc2[0], loc2[1]))
+    a = np.sin(0.5 * (lat2 - lat1))**2 + np.cos(lat1) * np.cos(lat2) * np.sin(0.5 * (lon2 - lon1))**2
+    return 2 * Earth_radius * np.arcsin(np.sqrt(a))
+
 def define_demand(sum_areas, df_demo, gdf_centroid, od, od_probs, to_csv=False):
-    '''Determines travel demand that occurs within the specified city area during the morning rush hour
+    '''Determine travel demand that occurs within the specified city area during the morning rush hour
         input:  sum_areas - SUM areas [shapefile]
                 df_demo - city demographic [csv]
                 gdf_centroid - centroids of city zones [geojson]
@@ -46,7 +63,10 @@ def define_demand(sum_areas, df_demo, gdf_centroid, od, od_probs, to_csv=False):
     '''
     res = {}
     for i in range(len(sum_areas)):
-        area = sum_areas.loc[i]
+        if isinstance(sum_areas, pd.Series):
+            area = sum_areas
+        else:    
+            area = sum_areas.loc[i]
         demo_area = df_demo.copy()
         demo_area['inside_poly'] = demo_area.apply(lambda row: 
                                             area.geometry.contains(Point(row['x'], row['y'])), axis=1)
@@ -74,18 +94,13 @@ def define_demand(sum_areas, df_demo, gdf_centroid, od, od_probs, to_csv=False):
         sample_area['treq'] = sample_area['treq'].apply(lambda _: time_lb + 
                             dt.timedelta(seconds=np.random.randint(0, (time_ub - time_lb).seconds)))
         requests = sample_area[['origin_x', 'origin_y', 'destination_x', 'destination_y', 'treq']]
-        if to_csv:
-            requests.to_csv('requests/reqs_' + str(sum_areas.name[i]) + '.csv', index=False)
-        res[sum_areas.name[i]] = requests
+        if isinstance(sum_areas, pd.Series):
+            res[sum_areas["name"]] = requests
+        else:
+            if to_csv:
+                requests.to_csv('requests/reqs_' + str(sum_areas.name[i]) + '.csv', index=False)
+            res[sum_areas.name[i]] = requests
     return res
-
-def sample_size(od, df):
-    '''calculate area production:
-    how many travellers leave the area during the morning rush hour
-    input: od - ODM, df - area demography with assigned zone numbers
-    output: int, sample size
-    '''
-    return round((sum(od[(od['zone_NO'].isin(df['zone_NO'].unique()))]['sum'])) / 2 * COEF)
 
 def PT_utility(requests, params):
     if 'walkDistance' in requests.columns:
@@ -96,42 +111,6 @@ def PT_utility(requests, params):
                                            params.wait_factor * requests.waitingTime +
                                            params.transfer_penalty * requests.transfers + requests.transitTime)
     return requests
-
-def haversine(loc1, loc2):
-    ''' Haversine formula [km]
-        coordinates in decimal degrees (y, x), e.g. (19.881557, 50.012738)'''
-    # latitude is the y-coordinate, longitude is the x-coordinate
-    Earth_radius = 6371  # [km];   R = 3959.87433 [mi]
-    lat1, lon1 = np.radians((loc1[0], loc1[1]))
-    lat2, lon2 = np.radians((loc2[0], loc2[1]))
-    a = np.sin(0.5 * (lat2 - lat1))**2 + np.cos(lat1) * np.cos(lat2) * np.sin(0.5 * (lon2 - lon1))**2
-    return 2 * Earth_radius * np.arcsin(np.sqrt(a))
-
-def run_ExMAS(df, inData, params, hub=None, degree=1):
-    '''input: df - dataframe with columns [origin_x, origin_y, destination_x, destination_y, treq]
-              inData - loaded graph and parameters
-              hub - tuple with hub coordinates
-              degree - params.max_degree - max number of travellers
-        output: runs ExMAS, calculates utilities and KPI's
-    '''
-    # inData.requests.columns = [origin, destination, treq, tdep, ttrav, tarr, tdrop]
-    params.nP = len(df)  # sample size
-    params.max_degree = degree
-    inData.requests = df.copy()
-    inData.requests['origin'] = inData.requests.apply(lambda row: ox.nearest_nodes(inData.G, row['origin_x'], row['origin_y']), axis=1)
-    if hub is not None:
-        inData.requests['destination'] = ox.nearest_nodes(inData.G, hub[0], hub[1])
-    else:
-        inData.requests['destination'] = inData.requests.apply(lambda row: ox.nearest_nodes(inData.G, row['destination_x'], row['destination_y']), axis=1)
-    # TODO: - DONT NEED TO CHECK if not reading from csv
-    if type(inData.requests['treq'][0]) == str:
-        inData.requests['treq'] = inData.requests['treq'].apply(lambda x: datetime.datetime.strptime(x, '%Y-%m-%d %H:%M:%S'))
-    inData.requests['dist'] = inData.requests.apply(lambda request: inData.skim.loc[request.origin, request.destination], axis=1)
-    inData.requests['ttrav'] = inData.requests.apply(lambda request: pd.Timedelta(request.dist, 's').floor('s'), axis=1)
-    inData.requests['tarr'] = [request.treq + request.ttrav for _, request in inData.requests.iterrows()]
-    inData.requests['pax_id'] = list(range(len(inData.requests)))
-    
-    inData = main.main(inData, params)
 
 def run_OTP(df, OTP_API):
     '''using OpenTripPlanner server returns routes for the given request
@@ -160,3 +139,90 @@ def run_OTP(df, OTP_API):
     # add ignore_index=True if indexes must be sorted
     df_query.dropna(inplace=True)
     return df_query
+
+def run_ExMAS(df, inData, params, hub=None, degree=8):
+    '''input: df - dataframe with columns [origin_x, origin_y, destination_x, destination_y, treq]
+              inData - dotMap object with loaded graph and parameters
+              hub - tuple with hub coordinates
+              degree - params.max_degree - max number of travellers
+        output: runs ExMAS, calculates utilities and KPI's
+    '''
+    # inData.requests.columns = [origin, destination, treq, tdep, ttrav, tarr, tdrop]
+    params.nP = len(df)  # sample size
+    params.max_degree = degree
+    inData.requests = df.copy()
+    inData.requests['origin'] = inData.requests.apply(lambda row: ox.nearest_nodes(inData.G, row['origin_x'], row['origin_y']), axis=1)
+    if hub is not None:
+        inData.requests['destination'] = ox.nearest_nodes(inData.G, hub[0], hub[1])
+    else:
+        inData.requests['destination'] = inData.requests.apply(lambda row: ox.nearest_nodes(inData.G, row['destination_x'], row['destination_y']), axis=1)
+
+    inData.requests['dist'] = inData.requests.apply(lambda request: inData.skim.loc[request.origin, request.destination], axis=1)
+    inData.requests['ttrav'] = inData.requests.apply(lambda request: pd.Timedelta(request.dist, 's').floor('s'), axis=1)
+    # inData.requests['tarr'] = [request.treq + request.ttrav for _, request in inData.requests.iterrows()]
+    inData.requests['pax_id'] = list(range(len(inData.requests)))
+    
+    inData = main.main(inData, params)
+
+def simulate(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, params, OTP_API, N=1, ASC=2.58):
+    '''calculate utilities for each traveller of the given area, (single rides, no ExMAS)
+    input:  gdf_areas - SUM areas [shapefile]
+            df_demo - city demographic [csv]
+            gdf_centroid - centroids of city zones [geojson]
+            od - ODMs [excel]
+            od_probs - ODM with probabilities [excel]
+            N - number of replications
+            ASC - alternative specific constant
+    output: tuple[0] - dictionary with mean results for N iterations for each area sample
+               ex. {'Skotniki': tw_PT_OD, tw_PT_HD, u_PT_OD, u_PT_HD, u_SUM_OD, p_SUM}
+            tuple[1] - dictionary with results of the last iteration for sample of each area:
+               ex. {'Skotniki': origin_x, origin_y, destination_x, destination_y, treq, u_PT_OD,
+                                origin, hub, dist, ttrav, tarr, u, u_SUM_OD, p_SUM}
+            '''
+    areas_res = {}
+    sum_res = {} # resultind dataFrame from the last iteration
+    for _, area in gdf_areas.iterrows():
+        key = area["name"]
+        dfres = pd.DataFrame()
+        for repl in range(N):
+            # print("area ", key, " iteration # ", repl + 1)
+            area_reqs = define_demand(area, df_demo, gdf_centroid, od, od_probs)
+            df = area_reqs[key].copy() # df with {O, D, Treq} for the area
+            hub = hubs[key]
+
+            # Utility for PT OD
+            df1 = df.copy()
+            df1 = run_OTP(df1, OTP_API) # define PT routes for each traveller
+            u_PT_OD = PT_utility(df1, params)  
+            
+            df = df.loc[u_PT_OD.index, :] # select requests with successful OD trips 
+            df.reset_index(drop=True, inplace=True)
+
+            # Utility for SUM (NSM OH + PT HD)
+            df_SUM = df.copy()
+            df_SUM['u_PT_OD'] = u_PT_OD.u_PT
+            df_SUM['origin'] = df_SUM.apply(lambda row: ox.nearest_nodes(inData.G, row['origin_x'], row['origin_y']), axis=1)
+            df_SUM['hub'] = ox.nearest_nodes(inData.G, hub[0], hub[1])
+            df_SUM['dist'] = df_SUM.apply(lambda request: inData.skim.loc[request.origin, request.hub], axis=1)
+            df_SUM['ttrav'] = df_SUM['dist'].apply(lambda request: request / params.avg_speed)
+            df_SUM['tarr'] = df_SUM.treq + df_SUM.apply(lambda df_SUM: pd.Timedelta(df_SUM.ttrav, 's').floor('s'), axis=1)
+            df_SUM['u'] = df_SUM.apply(lambda request: request['ttrav'] * params.VoT + request['dist'] * params.price / 1000, axis=1)
+
+            # Utility for PT HD
+            df2 = df_SUM.rename(columns = {'treq': 'treq_origin'})
+            df2['origin_x'] = hub[0]
+            df2['origin_y'] = hub[1]
+            df2['treq'] = pd.to_datetime(df_SUM.tarr) + pd.Timedelta(params.transfertime, unit='s') # treq for PT_HD
+            df2 = run_OTP(df2, OTP_API)
+            u_PT_HD = PT_utility(df2, params)
+            
+            df_SUM['u_SUM_OD'] = df_SUM.u + u_PT_HD.u_PT + ASC
+            df_SUM['p_SUM'] = df_SUM.apply(lambda row: math.exp(-row.u_SUM_OD) / \
+                                           (math.exp(-row.u_SUM_OD) + math.exp(-row.u_PT_OD)), axis=1)
+            df_means = pd.DataFrame([[u_PT_OD.waitingTime.mean(), u_PT_HD.waitingTime.mean(), u_PT_OD.u_PT.mean(),
+                                    u_PT_HD.u_PT.mean(), df_SUM.u_SUM_OD.mean(), df_SUM.p_SUM.mean()]], 
+                                    columns=['tw_PT_OD', 'tw_PT_HD', 'u_PT_OD', 'u_PT_HD', 'u_SUM_OD', 'p_SUM'])
+            dfres = pd.concat([dfres, df_means], ignore_index=True)
+        sum_res[key] = df_SUM
+        areas_res[key] = dfres
+    return (areas_res, sum_res)

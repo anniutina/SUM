@@ -928,13 +928,16 @@ def plot_demand(inData, params, t0=None, vehicles=False, s=10):
     for _, r in inData.requests.iterrows():
         ax.scatter(inData.G.nodes[r.origin]['x'], inData.G.nodes[r.origin]['y'], c='green', s=s, marker='D')
         ax.scatter(inData.G.nodes[r.destination]['x'], inData.G.nodes[r.destination]['y'], c='orange', s=s)
+        # ADDED plotting of destinations
+        destination_node = ox.nearest_nodes(inData.G, r.destination_x, r.destination_y)
+        ax.scatter(inData.G.nodes[destination_node]['x'], inData.G.nodes[destination_node]['y'], c='blue', s=s)
     if vehicles:
         for _, r in inData.vehicles.iterrows():
             ax.scatter(inData.G.nodes[r.pos]['x'], inData.G.nodes[r.pos]['y'], c='blue', s=s, marker='x')
     ax.scatter(inData.G.nodes[inData.stats['center']]['x'], inData.G.nodes[inData.stats['center']]['y'], c='red',
                s=10 * s, marker='+')
     plt.title(
-        'Demand in {} with origins marked in green, destinations in orange'.format(params.city))
+        'Demand in {} with origins marked in green, hub in orange and destinations in blue'.format(params.city))
     plt.show()
 
 
