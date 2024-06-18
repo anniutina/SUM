@@ -136,8 +136,8 @@ def run_OTP(df, OTP_API):
                     vals.append(pd.NA)
             df_query[name] = vals
 
-    # add ignore_index=True if indexes must be sorted
-    df_query.dropna(inplace=True)
+    # ignore_index=True if indexes must be sorted
+    df_query.dropna(inplace=True, ignore_index=True)
     return df_query
 
 def run_ExMAS(df, inData, params, hub=None, degree=8):
@@ -191,38 +191,43 @@ def simulate(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, param
             hub = hubs[key]
 
             # Utility for PT OD
-            df1 = df.copy()
-            df1 = run_OTP(df1, OTP_API) # define PT routes for each traveller
-            u_PT_OD = PT_utility(df1, params)  
+            u_pt_od = df.copy()
+            u_pt_od = run_OTP(u_pt_od, OTP_API) # define PT routes for each traveller
+            PT_utility(u_pt_od, params)  
             
-            df = df.loc[u_PT_OD.index, :] # select requests with successful OD trips 
+            df = df.loc[u_pt_od.index, :] # select requests with successful OD trips 
             df.reset_index(drop=True, inplace=True)
 
             # Utility for SUM (NSM OH + PT HD)
-            df_SUM = df.copy()
-            df_SUM['u_PT_OD'] = u_PT_OD.u_PT
-            df_SUM['origin'] = df_SUM.apply(lambda row: ox.nearest_nodes(inData.G, row['origin_x'], row['origin_y']), axis=1)
-            df_SUM['hub'] = ox.nearest_nodes(inData.G, hub[0], hub[1])
-            df_SUM['dist'] = df_SUM.apply(lambda request: inData.skim.loc[request.origin, request.hub], axis=1)
-            df_SUM['ttrav'] = df_SUM['dist'].apply(lambda request: request / params.avg_speed)
-            df_SUM['tarr'] = df_SUM.treq + df_SUM.apply(lambda df_SUM: pd.Timedelta(df_SUM.ttrav, 's').floor('s'), axis=1)
-            df_SUM['u'] = df_SUM.apply(lambda request: request['ttrav'] * params.VoT + request['dist'] * params.price / 1000, axis=1)
+            df_sum = df.copy()
+            df_sum['u_PT_OD'] = u_pt_od.u_PT
+            df_sum['origin'] = df_sum.apply(lambda row: ox.nearest_nodes(inData.G, row['origin_x'], row['origin_y']), axis=1)
+            df_sum['hub'] = ox.nearest_nodes(inData.G, hub[0], hub[1])
+            df_sum['dist'] = df_sum.apply(lambda request: inData.skim.loc[request.origin, request.hub], axis=1)
+            df_sum['ttrav'] = df_sum['dist'].apply(lambda request: request / params.avg_speed)
+            df_sum['tarr'] = df_sum.treq + df_sum.apply(lambda df_sum: pd.Timedelta(df_sum.ttrav, 's').floor('s'), axis=1)
+            df_sum['u'] = df_sum.apply(lambda request: request['ttrav'] * params.VoT + request['dist'] * params.price / 1000, axis=1)
 
             # Utility for PT HD
-            df2 = df_SUM.rename(columns = {'treq': 'treq_origin'})
-            df2['origin_x'] = hub[0]
-            df2['origin_y'] = hub[1]
-            df2['treq'] = pd.to_datetime(df_SUM.tarr) + pd.Timedelta(params.transfertime, unit='s') # treq for PT_HD
-            df2 = run_OTP(df2, OTP_API)
-            u_PT_HD = PT_utility(df2, params)
+            u_pt_hd = df_sum.rename(columns = {'treq': 'treq_origin'})
+            u_pt_hd['origin_x'] = hub[0]
+            u_pt_hd['origin_y'] = hub[1]
+            u_pt_hd['treq'] = pd.to_datetime(df_sum.tarr) + pd.Timedelta(params.transfertime, unit='s') # treq for PT_HD
+            u_pt_hd = run_OTP(u_pt_hd, OTP_API)
+            PT_utility(u_pt_hd, params)
+
+            u_pt_od = u_pt_od.loc[u_pt_hd.index, :] # drop rows with unsuccessful HD trips 
+            u_pt_od.reset_index(drop=True, inplace=True)
+            df_sum = df_sum.loc[u_pt_hd.index, :] 
+            df_sum.reset_index(drop=True, inplace=True)
             
-            df_SUM['u_SUM_OD'] = df_SUM.u + u_PT_HD.u_PT + ASC
-            df_SUM['p_SUM'] = df_SUM.apply(lambda row: math.exp(-row.u_SUM_OD) / \
+            df_sum['u_SUM_OD'] = df_sum.u + u_pt_hd.u_PT + ASC
+            df_sum['p_SUM'] = df_sum.apply(lambda row: math.exp(-row.u_SUM_OD) / \
                                            (math.exp(-row.u_SUM_OD) + math.exp(-row.u_PT_OD)), axis=1)
-            df_means = pd.DataFrame([[u_PT_OD.waitingTime.mean(), u_PT_HD.waitingTime.mean(), u_PT_OD.u_PT.mean(),
-                                    u_PT_HD.u_PT.mean(), df_SUM.u_SUM_OD.mean(), df_SUM.p_SUM.mean()]], 
+            df_means = pd.DataFrame([[u_pt_od.waitingTime.mean(), u_pt_hd.waitingTime.mean(), u_pt_od.u_PT.mean(),
+                                    u_pt_hd.u_PT.mean(), df_sum.u_SUM_OD.mean(), df_sum.p_SUM.mean()]], 
                                     columns=['tw_PT_OD', 'tw_PT_HD', 'u_PT_OD', 'u_PT_HD', 'u_SUM_OD', 'p_SUM'])
             dfres = pd.concat([dfres, df_means], ignore_index=True)
-        sum_res[key] = df_SUM
+        sum_res[key] = df_sum
         areas_res[key] = dfres
     return (areas_res, sum_res)
