@@ -56,5 +56,5 @@ $$
 * [csv](https://github.com/anniutina/SUM/tree/main/results) with results
 
 ## Usage:
-* Utilities, Mode choice, Demand NSM definitions in this [notebook](https://github.com/anniutina/SUM/blob/main/sum_main.ipynb)
+* Comparison of two SUM areas [notebook](https://github.com/anniutina/SUM/blob/main/sum_main.ipynb)
 * running the OTP server [notebook](https://github.com/OlhaShulikaUJ/SUM_project/blob/main/PT/run%20OTP%20server-KRK.ipynb)
