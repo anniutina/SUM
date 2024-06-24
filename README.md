@@ -9,19 +9,17 @@ The software was implemented using Python programming language and its basic lib
 * [Public Transport queries](https://github.com/RafalKucharskiPK/query_PT)
 * [ExMAS](https://github.com/RafalKucharskiPK/ExMAS/tree/master/ExMAS)
 ### The roadmap of the current project for the city:
-1) OD
-   * sample origins
-   * sample destinations
+1) Create demand dataset. Sampling done according to the established movement models. 
      
  ![OD](https://github.com/OlhaShulikaUJ/SUM_project/blob/main/OD.png) 
-     
-2) Demand for PT
+
+2) Calculate utitiles of different transport modes:
    
-3) Utility of PT for trips from O to D: $U_{PT:O\to \overline{D}}$
+  a) Utility of PT for trips from O to D: $U_{PT:O\to \overline{D}}$
 
-4) Utility of PT for trips from HUB to D: $U_{PT:HUB\to \overline{D}}$
+  b) Utility of PT for trips from HUB to D: $U_{PT:HUB\to \overline{D}}$
 
-5) ExMAS for all PT users from O to HUB:
+  c) Utility of ride-pooling (following ExMAS) for all PT users from O to HUB:
 
 $$
 \begin{aligned}
@@ -29,15 +27,15 @@ $$
 \end{aligned}
 $$
 
-6) Mode Choice
+3) Mode Choice
    * сalculate ASC for the given $E(p_{sum})$ for n replications
    * define the average ASC 
    * recalculate $p_{sum}$ for all PT users
 
-7) Demand for SUM
+4) Demand for SUM
    * count a number of travellers with probability $p_{random} < p_{sum}$
 
-8) KPIs for SUM
+5) KPIs for SUM
    * ExMAS only for SUM users from O to HUB
    * assessment
 
