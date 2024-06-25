@@ -3,7 +3,6 @@ import numpy as np
 import osmnx as ox
 import geopandas as gpd
 from shapely.geometry import Point
-# from shapely.geometry import Polygon
 import random
 import datetime as dt
 import requests
@@ -220,6 +219,8 @@ def simulate(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, param
             u_pt_od.reset_index(drop=True, inplace=True)
             df_sum = df_sum.loc[u_pt_hd.index, :] 
             df_sum.reset_index(drop=True, inplace=True)
+            u_pt_hd.reset_index(drop=True, inplace=True)
+            df_sum['u_PT_HD'] = u_pt_hd.u_PT
             
             df_sum['u_SUM_OD'] = df_sum.u + u_pt_hd.u_PT + ASC
             df_sum['p_SUM'] = df_sum.apply(lambda row: math.exp(-row.u_SUM_OD) / \
@@ -231,3 +232,9 @@ def simulate(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, param
         sum_res[key] = df_sum
         areas_res[key] = dfres
     return (areas_res, sum_res)
+
+def calc_E_Psum(df, ASC=0):
+    df['u_SUM_OD'] = df.u + df.u_PT_HD + ASC
+    df['p_SUM'] = df.apply(lambda row: math.exp(-row.u_SUM_OD) / \
+                        (math.exp(-row.u_SUM_OD) + math.exp(-row.u_PT_OD)), axis=1)
+    return df.p_SUM.mean()
