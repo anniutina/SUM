@@ -1,7 +1,7 @@
 # [SUM](https://sum-project.eu/)
 
 # Seamless Shared Urban Mobility (SUM)
-> This software allows performing simulations of trip requests and various travel scenarios within the specified study area, and using obtained KPIs to determine utilities of the integration of New Shared Modes and PT.
+> This software enables the generation of trip requests and the simulation of different travel scenarios within a defined study area. Moreover, it allows the assessment of the utility of integrating New Shared Mode (NSM) with public transport (PT).
 ## Technology
 The software was implemented using Python programming language and its basic libraries
 ## Description
@@ -9,11 +9,11 @@ The software was implemented using Python programming language and its basic lib
 * [Public Transport queries](https://github.com/RafalKucharskiPK/query_PT)
 * [ExMAS](https://github.com/RafalKucharskiPK/ExMAS/tree/master/ExMAS)
 ### The roadmap of the current project for the city:
-1) Create demand dataset. Sampling done according to the established movement models. 
+1) Create a demand dataset. Sampling is done according to the established travel patterns. 
      
  ![OD](https://github.com/OlhaShulikaUJ/SUM_project/blob/main/OD.png) 
 
-2) Calculate utitiles of different transport modes:
+2) Calculate utilities of different transport modes:
    
   a) Utility of PT for trips from O to D: $U_{PT:O\to \overline{D}}$
 
@@ -41,7 +41,7 @@ $$
 
 
 ## Input:
-* [csv file]((https://github.com/anniutina/SUM/blob/main/data/krk_demographic.csv)) with demography and address points distribution 
+* [csv file]((https://github.com/anniutina/SUM/blob/main/data/krk_demographic.csv)) with population and address points distribution 
   
 * graphml file with [city graph](https://github.com/anniutina/SUM/blob/main/ExMAS/data/graphs/Krakow.graphml)
 * the [default](https://github.com/anniutina/SUM/blob/main/data/configs/default_SUM.json) file with configurations
