@@ -3,6 +3,8 @@ import numpy as np
 import osmnx as ox
 import geopandas as gpd
 from shapely.geometry import Point
+from shapely.geometry import Polygon
+from shapely.geometry import MultiPolygon
 import random
 import datetime as dt
 import requests
@@ -17,13 +19,39 @@ from query_PT import main as qpt_main
 KRA_17 = 767348     # Krakow population for 2017
 KRA_23 = 804200     # Krakow population for 2023
 COEF = KRA_23 / KRA_17
-def sample_size(od, df):
-    '''calculate area production:
-    number of travellers leaving the area during the morning rush hour
-    input: od - ODM, df - area demographic with assigned city zone numbers
-    output: int, sample size
+
+def sample_size(od, df_demo, area_pop):
+    '''Calculates the number of travellers leaving the area during the rush hour
+        as the proportion between zone and area population and their production
+        Parameters: od - ODM, df_demo - DataFrame with city population distribution, 
+                    area_pop - area population distribution
+        Returns: area production
     '''
-    return round((sum(od[(od['zone_NO'].isin(df['zone_NO'].unique()))]['sum'])) / 2 * COEF)
+    a_zns = np.sort(area_pop['zone_NO'].unique()) # area zones
+    # zone production, zone population, partial area population
+    z_prod, z_pop, p_a_pop = 0, 0, 0  
+    p_a_prod = [] # partial area production
+
+    for z_num in a_zns:
+        z_prod = od[(od['zone_NO'] == z_num)]['sum'].item()
+        z_pop = sum(df_demo[df_demo["zone_NO"] == z_num]["total"])
+        p_a_pop = sum(area_pop[area_pop["zone_NO"] == z_num]["total"])
+        p_a_prod.append(z_prod * p_a_pop / z_pop)
+    return round(sum(p_a_prod) / 2 * COEF, 2)
+
+def reverse_coords(geom):
+    '''Reverse the order of lon, lat in a Shapely geometry
+        Parameters: geom - Polygon or MultiPolygon object with coords to reverse
+        Returns: a new Polygon or MultiPolygon object with reversed coords, lat lon'''
+    if type(geom) == Polygon:
+        new_exterior = [(y, x) for x, y in geom.exterior.coords]
+        new_interior = [[(y, x) for x, y in interior.coords] for interior in geom.interiors]
+        return Polygon(new_exterior, new_interior)
+    elif type(geom) == MultiPolygon:
+        reversed_multi_poly = []
+        for poly in geom.geoms:
+            reversed_multi_poly.append(reverse_coords(poly))
+        return MultiPolygon(reversed_multi_poly)
 
 def transform_coords(source_crs, target_crs, x, y):
     '''transforms point coordinates from the source coordinate system to the target
@@ -158,14 +186,13 @@ def run_ExMAS(df, inData, params, hub=None, degree=8):
 
     inData.requests['dist'] = inData.requests.apply(lambda request: inData.skim.loc[request.origin, request.destination], axis=1)
     inData.requests['ttrav'] = inData.requests.apply(lambda request: pd.Timedelta(request.dist, 's').floor('s'), axis=1)
-    # inData.requests['tarr'] = [request.treq + request.ttrav for _, request in inData.requests.iterrows()]
     inData.requests['pax_id'] = list(range(len(inData.requests)))
     
     inData = main.main(inData, params)
 
-def simulate(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, params, OTP_API, N=1, ASC=2.58):
+def simulate(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, params, OTP_API, degree=1, N=1, ASC=2.58):
     '''calculate utilities for each traveller of the given area, (single rides, no ExMAS)
-    input:  gdf_areas - SUM areas [shapefile]
+    input:  gdf_areas - SUM areas [geopandas dataframe]
             df_demo - city demographic [csv]
             gdf_centroid - centroids of city zones [geojson]
             od - ODMs [excel]
@@ -185,7 +212,7 @@ def simulate(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, param
         dfres = pd.DataFrame()
         for repl in range(N):
             # print("area ", key, " iteration # ", repl + 1)
-            area_reqs = define_demand(area, df_demo, gdf_centroid, od, od_probs)
+            area_reqs = define_demand(area, df_demo, gdf_centroid, od, od_probs, params)
             df = area_reqs[key].copy() # df with {O, D, Treq} for the area
             hub = hubs[key]
 
@@ -200,15 +227,24 @@ def simulate(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, param
             # Utility for SUM (NSM OH + PT HD)
             df_sum = df.copy()
             df_sum['u_PT_OD'] = u_pt_od.u_PT
-            df_sum['origin'] = df_sum.apply(lambda row: ox.nearest_nodes(inData.G, row['origin_x'], row['origin_y']), axis=1)
-            df_sum['hub'] = ox.nearest_nodes(inData.G, hub[0], hub[1])
-            df_sum['dist'] = df_sum.apply(lambda request: inData.skim.loc[request.origin, request.hub], axis=1)
-            df_sum['ttrav'] = df_sum['dist'].apply(lambda request: request / params.avg_speed)
-            df_sum['tarr'] = df_sum.treq + df_sum.apply(lambda df_sum: pd.Timedelta(df_sum.ttrav, 's').floor('s'), axis=1)
-            df_sum['u'] = df_sum.apply(lambda request: request['ttrav'] * params.VoT + request['dist'] * params.price / 1000, axis=1)
+
+            if degree == 1:
+                df_sum['origin'] = df_sum.apply(lambda row: ox.nearest_nodes(inData.G, row['origin_x'], row['origin_y']), axis=1)
+                df_sum['hub'] = ox.nearest_nodes(inData.G, hub[0], hub[1])
+                df_sum['dist'] = df_sum.apply(lambda request: inData.skim.loc[request.origin, request.hub], axis=1)
+                df_sum['ttrav'] = df_sum['dist'].apply(lambda request: request / params.avg_speed)
+                df_sum['tarr'] = df_sum.treq + df_sum.apply(lambda df_sum: pd.Timedelta(df_sum.ttrav, 's').floor('s'), axis=1)
+                df_sum['u'] = df_sum.apply(lambda request: request['ttrav'] * params.VoT + request['dist'] * params.price / 1000, axis=1)
+            else:
+                run_ExMAS(df_sum, inData, params, hub, degree)
+                df_sum['tarr'] = df_sum.treq + inData.sblts.requests.apply(
+                    lambda request: pd.Timedelta(request.ttrav_sh, 's').floor('s'), axis=1)
+                df_sum['u'] = inData.sblts.requests.u
+                df_sum['u_sh'] = inData.sblts.requests.u_sh
 
             # Utility for PT HD
-            u_pt_hd = df_sum.rename(columns = {'treq': 'treq_origin'})
+            u_pt_hd = df.copy()
+            u_pt_hd = u_pt_hd.rename(columns = {'treq': 'treq_origin'})
             u_pt_hd['origin_x'] = hub[0]
             u_pt_hd['origin_y'] = hub[1]
             u_pt_hd['treq'] = pd.to_datetime(df_sum.tarr) + pd.Timedelta(params.transfertime, unit='s') # treq for PT_HD
@@ -222,7 +258,10 @@ def simulate(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, param
             u_pt_hd.reset_index(drop=True, inplace=True)
             df_sum['u_PT_HD'] = u_pt_hd.u_PT
             
-            df_sum['u_SUM_OD'] = df_sum.u + u_pt_hd.u_PT + ASC
+            if degree == 1:
+                df_sum['u_SUM_OD'] = df_sum.u + u_pt_hd.u_PT + ASC
+            else:
+                df_sum['u_SUM_OD'] = df_sum.u_sh + u_pt_hd.u_PT + ASC
             df_sum['p_SUM'] = df_sum.apply(lambda row: math.exp(-row.u_SUM_OD) / \
                                            (math.exp(-row.u_SUM_OD) + math.exp(-row.u_PT_OD)), axis=1)
             df_means = pd.DataFrame([[u_pt_od.waitingTime.mean(), u_pt_hd.waitingTime.mean(), u_pt_od.u_PT.mean(),
