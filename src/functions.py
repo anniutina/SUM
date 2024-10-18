@@ -78,9 +78,9 @@ def haversine(loc1, loc2):
     a = np.sin(0.5 * (lat2 - lat1))**2 + np.cos(lat1) * np.cos(lat2) * np.sin(0.5 * (lon2 - lon1))**2
     return 2 * Earth_radius * np.arcsin(np.sqrt(a))
 
-def define_demand(sum_areas, df_demo, gdf_centroid, od, od_probs, to_csv=False):
+def define_demand(sum_areas, df_demo, gdf_centroid, od, od_probs, params, to_csv=False):
     '''Determine travel demand that occurs within the specified city area during the morning rush hour
-        input:  sum_areas - SUM areas [shapefile]
+        input:  sum_areas - SUM areas [geopandas dataframe]
                 df_demo - city demographic [csv]
                 gdf_centroid - centroids of city zones [geojson]
                 od - ODM [excel]
@@ -94,33 +94,34 @@ def define_demand(sum_areas, df_demo, gdf_centroid, od, od_probs, to_csv=False):
             area = sum_areas
         else:    
             area = sum_areas.loc[i]
-        demo_area = df_demo.copy()
-        demo_area['inside_poly'] = demo_area.apply(lambda row: 
+        area_pop = df_demo.copy()
+        # define, if area polygon contains address points (area population)
+        area_pop['inside_poly'] = area_pop.apply(lambda row: 
                                             area.geometry.contains(Point(row['x'], row['y'])), axis=1)
-        demo_area = demo_area[demo_area.inside_poly].reset_index(drop=True)
+        area_pop = area_pop[area_pop.inside_poly].reset_index(drop=True)
         # repeat rows N times (equal "total"): N rows = N people
-        demo_area = demo_area.loc[demo_area.index.repeat(demo_area.total)]
+        area_pop_repeated = area_pop.loc[area_pop.index.repeat(area_pop.total)]
         # select a sample of origins
-        sample_area = demo_area.sample(sample_size(od, demo_area)).reset_index(drop=True)
-        sample_area.rename(columns = {'x' : 'origin_x', 'y': 'origin_y'}, inplace = True)
-        sample_area['probs'] = [None] * len(sample_area)
-        sample_area['desti_zones'] = [None] * len(sample_area)
-        for n in range(len(sample_area['zone_NO'])):
-            sample_area.at[n, 'desti_zones'] = list(od_probs.zone_NO)
-            sample_area.at[n, 'probs'] = list(od_probs.loc[sample_area['zone_NO'][n], 1:])
-        sample_area['desti_zone'] = sample_area.apply(lambda row: random.choices(row.desti_zones, 
+        area_sample = area_pop_repeated.sample(round(sample_size(od, df_demo, area_pop))).reset_index(drop=True)
+        area_sample.rename(columns = {'x' : 'origin_x', 'y': 'origin_y'}, inplace = True)
+        area_sample['probs'] = [None] * len(area_sample)
+        area_sample['desti_zones'] = [None] * len(area_sample)
+        for n in range(len(area_sample['zone_NO'])):
+            area_sample.at[n, 'desti_zones'] = list(od_probs.zone_NO)
+            area_sample.at[n, 'probs'] = list(od_probs.loc[area_sample['zone_NO'][n], 1:])
+        area_sample['desti_zone'] = area_sample.apply(lambda row: random.choices(row.desti_zones, 
                                                                         weights=row.probs, k=1)[0], axis=1)
-        sample_area['destination_x'] = sample_area.apply(lambda row: 
+        area_sample['destination_x'] = area_sample.apply(lambda row: 
                                     gdf_centroid[gdf_centroid.NO == row.desti_zone].geometry.iloc[0].coords.xy[0][0], axis=1)
-        sample_area['destination_y'] = sample_area.apply(lambda row: 
+        area_sample['destination_y'] = area_sample.apply(lambda row: 
                                     gdf_centroid[gdf_centroid.NO == row.desti_zone].geometry.iloc[0].coords.xy[1][0], axis=1)    
-        sample_area['treq'] = pd.NA
+        area_sample['treq'] = pd.NA
         time_format = '%Y-%m-%d %H:%M:%S'
         time_lb = dt.datetime.strptime('2024-03-28 07:45:00', time_format)
         time_ub = dt.datetime.strptime('2024-03-28 08:15:00', time_format)
-        sample_area['treq'] = sample_area['treq'].apply(lambda _: time_lb + 
+        area_sample['treq'] = area_sample['treq'].apply(lambda _: time_lb + 
                             dt.timedelta(seconds=np.random.randint(0, (time_ub - time_lb).seconds)))
-        requests = sample_area[['origin_x', 'origin_y', 'destination_x', 'destination_y', 'treq']]
+        requests = area_sample[['origin_x', 'origin_y', 'destination_x', 'destination_y', 'treq']]
         if isinstance(sum_areas, pd.Series):
             res[sum_areas["name"]] = requests
         else:
@@ -174,22 +175,17 @@ def run_ExMAS(df, inData, params, hub=None, degree=8):
               degree - params.max_degree - max number of travellers
         output: runs ExMAS, calculates utilities and KPI's
     '''
-    # inData.requests.columns = [origin, destination, treq, tdep, ttrav, tarr, tdrop]
     params.nP = len(df)  # sample size
     params.max_degree = degree
     inData.requests = df.copy()
-    inData.requests['origin'] = inData.requests.apply(lambda row: ox.nearest_nodes(inData.G, row['origin_x'], row['origin_y']), axis=1)
-    if hub is not None:
-        inData.requests['destination'] = ox.nearest_nodes(inData.G, hub[0], hub[1])
-    else:
+    if hub is None:
         inData.requests['destination'] = inData.requests.apply(lambda row: ox.nearest_nodes(inData.G, row['destination_x'], row['destination_y']), axis=1)
-
-    inData.requests['dist'] = inData.requests.apply(lambda request: inData.skim.loc[request.origin, request.destination], axis=1)
     inData.requests['ttrav'] = inData.requests.apply(lambda request: pd.Timedelta(request.dist, 's').floor('s'), axis=1)
     inData.requests['pax_id'] = list(range(len(inData.requests)))
     
     inData = main.main(inData, params)
 
+#  TODO: update function
 def simulate(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, params, OTP_API, degree=1, N=1, ASC=2.58):
     '''calculate utilities for each traveller of the given area, (single rides, no ExMAS)
     input:  gdf_areas - SUM areas [geopandas dataframe]
