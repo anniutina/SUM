@@ -268,8 +268,9 @@ def simulate(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, param
         areas_res[key] = dfres
     return (areas_res, sum_res)
 
-def calc_E_Psum(df, ASC=0):
-    df['u_SUM_OD'] = df.u + df.u_PT_HD + ASC
-    df['p_SUM'] = df.apply(lambda row: math.exp(-row.u_SUM_OD) / \
-                        (math.exp(-row.u_SUM_OD) + math.exp(-row.u_PT_OD)), axis=1)
-    return df.p_SUM.mean()
+def calc_E_p_sum(df, ASC=0):
+    df_p = df.copy()
+    df_p['u_SUM_OD_'] = df_p.u_SUM_OD + ASC
+    df_p['p_SUM_'] = df_p.apply(lambda row: math.exp(-row.u_SUM_OD_) / \
+                        (math.exp(-row.u_SUM_OD_) + math.exp(-row.u_PT_OD)), axis=1)
+    return df_p.p_SUM_.mean()
