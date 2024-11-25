@@ -1,5 +1,7 @@
 {
-  "expected_prob": 0.3,
+  "convergence_threshold": 0.001,
+  "logger_level": "CRITICAL",
+  "expected_prob": 0.3, 
   "avg_speed": 6,
   "transfertime": 30,
   "speeds": {
@@ -12,9 +14,9 @@
   "transfer_penalty": 500,
   "shared_discount": 0.3,
   "VoT": 0.003,
-  "WtS": 1.0,
+  "WtS": 1,
   "delay_value": 1,
-  "price": 0,
+  "price": 1.5,
   "matching_obj": "u_veh",
   "pax_delay": 15,
   "horizon": 1200,
@@ -23,7 +25,7 @@
     "main": "ExMAS",
     "data": "data",
     "params": "data/configs",
-    "postcodes": "ExMAS/data/postcodes/PC4_Poland_2024.shp",
+    "postcodes": "data/postcodes/PC4_Poland_2024.shp",
     "G": "data/graphs/Krakow.graphml",
     "skim": "data/graphs/Krakow.csv"
   },
@@ -38,5 +40,5 @@
     "temporal_distribution": "uniform"
   },
   "max_degree": 8,
-  "t0": "7:00"
+  "t0": "08:00"
 }
