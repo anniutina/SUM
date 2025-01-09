@@ -186,7 +186,6 @@ def run_ExMAS(df, inData, params, hub=None, degree=8):
     
     inData = main.main(inData, params)
 
-
 def calc_E_p_sum(df, ASC=0):
     df_p = df.copy()
     df_p['u_SUM_OD_'] = df_p.u_SUM_OD + ASC
@@ -196,43 +195,51 @@ def calc_E_p_sum(df, ASC=0):
 
 
 def simulate_MSA(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, params, OTP_API, 
-                 degree=1, N=1, max_iter=100, ASC=1.95, results_period=0) -> dict:
-    '''calculate utilities for each traveller of the given area for single and shared rides (ExMAS)
-        calculate ASC if ASC = None
-        apply method of successive averages (MSA) for travel times variable
+                 degree=1, N=1, max_iter=100, ASC=2.2, results_period=0) -> dict:
+    ''' Perform simulations to evaluate two travel options: - PT and - Feeder bus + PT: 
+        - calculate utilities for each traveller of the given area for single and shared rides (ExMAS)
+        - evaluate ASC (if ASC = None)
+        - apply method of successive averages (MSA) for travel times variable
 
-    input:  gdf_areas - SUM areas [geopandas dataframe]
+    input: gdf_areas - SUM areas [geopandas dataframe]
         df_demo - city population distribution [csv]
         gdf_centroid - centroids of city zones [geojson]
-        od - ODMs [excel], od_probs - dataframe with destination probabilities
+        od - ODM [excel], od_probs - dataframe with destination probabilities
         hubs - choseen hub locations [dict]
         inData, params, OTP_API, degree - ExMAS input
-        N - number of replications (generate sample for the area)
-        iterations - number of iterations for ExMAS
+        N - number of area sample replications
+        max_iter - number of iterations for shared rides
         ASC - alternative specific constant
-    output: dictionary {'area name': {'avg_sim_res': DataFrame}, {'sum_res': DataFrame}, {}}
-        avg_sim_res - mean results for N replications for each area sample
+        results_period - number of iterations after the sistem stabilization for obtaining KPI's (from ExMAS)
+    output: dictionary {'area name': {'avg_sim_res': DataFrame}, {'sum_res': DataFrame}, {}, ...}
+        avg_sim_res - mean results of N replications of each area samples
             ex. {'Skotniki': {'avg_sim_res': ['tw_PT_OD', 'tw_PT_HD', 'u_PT_OD', 'u_PT_HD', 'u_SUM_OD', 'p_SUM']}}
         sum_res - results of the last iteration for sample of each area:
             ex. {'Skotniki': {'sum_res': [origin_x, origin_y, destination_x, destination_y, treq, u_PT_OD,
                                 origin, hub, dist, ttrav, tarr, u_SUM_OD, p_SUM]}}
-        kpis_res - DataFrame with KPIs [] TODO: add labels
+        kpis_res - DataFrame with KPIs
         avg_times - average expected times [t_expected_i] for all travelers 
+        avg_ts_sh, avg_ts_pt - average travel times for shared or PT option
         times - DataFrame with times, ex. {'Skotniki': t_0, ttrav_sh_i, t_expected_i}
         asc_res - asc coefficients for the case when ASC is unknown
+        converged_is - list with numbers of iteration, on which the system converged
     '''
     results = {} # main dictionary to store all the results
-    # keys = ['avg_sim_res', 'sum_res', 'avg_times', 'times', 'kpis_res', 'asc_res']
     
     def iterate(df_sum):
         ''' inner function to perform iterations to evaluate results for options:
             1. before the system stabilizes -> apply MSA
-            2. afre stabilization -> to obtain KPIs
+            2. after stabilization -> to obtain KPIs
         '''
         sum_demand = df_sum[df_sum.apply(lambda row: random.random() < row['p_SUM'], axis=1)] # chosen SUM travelers
-        # print('sum_demand sample', sum_demand.shape[0])
+        print('sum_demand sample', sum_demand.shape[0])
+        
         df_sum_sh = sum_demand[['origin_x', 'origin_y', 'destination_x', 'destination_y', 'treq', 'origin', 'destination', 'dist', 't_expected', 'u_PT_OD', 'nTrips']]
         df_sum_sh['nTrips'] = df_sum_sh['nTrips'] + 1
+
+        if sum_demand.shape[0] == 0:
+            print(f'no shared trips for ASC {ASC}')
+            return df_sum_sh
         
         run_ExMAS(df_sum_sh, inData, params, hub, degree)
         
@@ -243,7 +250,6 @@ def simulate_MSA(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, p
         df_sum_sh['ttrav_sh'] = inData_reqs_sorted['ttrav_sh']
         df_sum_sh['tarr'] = df_sum_sh.treq + df_sum_sh.apply(
             lambda req: pd.Timedelta(req.ttrav_sh, 's').floor('s'), axis=1)
-    
         df_sum_sh['t_expected'] = (df_sum_sh['nTrips'] - 1) / df_sum_sh['nTrips'] * df_sum_sh.t_expected + \
             df_sum_sh.ttrav_sh / df_sum_sh['nTrips']
     
@@ -276,22 +282,24 @@ def simulate_MSA(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, p
                                 (math.exp(-row.u_SUM_OD) + math.exp(-row.u_PT_OD)), axis=1)
         return df_sum_sh
 
-    
     for _, area in gdf_areas.iterrows():
         key = area["name"]
         dfres = pd.DataFrame()
         df_kpi_res = pd.DataFrame()
-        ascs = [] # store ASC for each sample of each area
+        df_avg_times = pd.DataFrame() # to store avg times expected for each replication
+        df_avg_ts_sh, df_avg_ts_pt = pd.DataFrame(), pd.DataFrame() # to store avg times for feeder and PT users
+        ascs = [] # if ASC=None, store ASC for each sample of each area
+        converged_i = [] # the iteration where the system converged
             
         for repl in range(N):
-            converged = False # TODO: TEST!! if condition
+            converged = False
             df_times = pd.DataFrame()
             df_kpis = pd.DataFrame()
-            avg_time = []
+            avg_time, avg_t_sh, avg_t_pt = [], [], []
             area_reqs = define_demand(area, df_demo, gdf_centroid, od, od_probs, params)
             df = area_reqs[key].copy() # df with {O, D, Treq} for the area
             hub = hubs[key]
-            # print(repl + 1, "run simulations for area", key, ": sample size ", df.shape[0])
+            print(f'replication {repl + 1} for area {key}')
 
             # OPTION I: Utility for PT OD
             u_pt_od = df.copy()
@@ -337,61 +345,70 @@ def simulate_MSA(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, p
             # probability of using SUM for each traveler in a single trip
             df_sum['p_SUM'] = df_sum.apply(lambda row: math.exp(-row.u_SUM_OD) / \
                                           (math.exp(-row.u_SUM_OD) + math.exp(-row.u_PT_OD)), axis=1)
-            # print("p_SUM ",  df_sum.p_SUM.mean())
+            print("p_SUM ",  df_sum.p_SUM.mean())
             
             # ASC calculation
             if not ASC:
                 degree = 1
                 ascs.append(optimize.fsolve(lambda x: calc_E_p_sum(df_sum, x) - params.expected_prob, 0)[0])
-                # print(repl, "ASC ", key, ascs[repl])
+                print(repl, "ASC ", key, ascs[repl])
               
             # times ---------------------------------------------------
             # optimistic ttrav, updated after each ExMAS iteration for travelers using SUM
-            df_times['t_0'] = df_sum['ttrav']
+            df_times['t_0'] = df_sum['ttrav'] # help dataframe for testing
             avg_time.append(df_sum.ttrav.mean()) # optimistic average travel time for ALL travelers before shared travel
                 
             df_sum['nTrips'] = 0 # number of shared trips
                 
             if degree > 1:
-                i = 1
-                while i < max_iter + 1 and not converged:
+                for i in range(1, max_iter + 1):
                 # loop will run until the system will stabilize or until max_iter
-                    # print('iteration ', i, ' for', key)
+                    print('iteration ', i, ' for', key)
                     
                     df_sum_sh = iterate(df_sum)
+                    
+                    if df_sum_sh.shape[0] == 0:
+                        break
 
                     # times ---------------------------------------------------
-                    # dataframe with times: {t_0, t_ttrav_sh_i, t_expected_i}
+                    # test dataframe with times: {t_0, t_ttrav_sh_i, t_expected_i}
                     df_times.loc[df_sum_sh.index, [f'ttrav_sh_{i}']] = df_sum_sh[['ttrav_sh']].values
                     df_times.loc[df_sum_sh.index, [f't_expected_{i}']] = df_sum_sh[['t_expected']].values
 
+                    df_pt = df_sum.copy() # df to store PT travelers
+                    df_pt = df_pt.drop(index=df_sum_sh['indexes_sum'])
                     # Update p_SUM and t_expected for trips chosen for SUM in the main table
                     df_sum.loc[df_sum_sh['indexes_sum'], ['p_SUM']] = df_sum_sh[['p_SUM']].values
                     df_sum.loc[df_sum_sh['indexes_sum'], ['t_expected']] = df_sum_sh[['t_expected']].values
                     df_sum.loc[df_sum_sh['indexes_sum'], ['nTrips']] = df_sum_sh[['nTrips']].values
                     avg_time.append(df_sum.t_expected.mean()) # average expected travel times for ALL travelers
+                    avg_t_sh.append(df_sum_sh.t_expected.mean())
+                    avg_t_pt.append(df_pt.t_expected.mean())
                 
-                    # STOP ---------------------------------------------------
-                    delta = abs(avg_time[i] - avg_time[i - 1]) / avg_time[i - 1]
-                    # print("delta ", delta)
-                    # print("==============================================================")
-                    # check if convergence criterion is met
-                    if delta < params.convergence_threshold:
-                        converged = True
-                        print(f"Convergence reached at iteration {i}")
-                        # print("===============================================================")
+                    # MSA condition ---------------------------------------------------
+                    if i > 3 and not converged:
+                        delta3 = abs(avg_time[i] - avg_time[i - 1]) / avg_time[i - 1]
+                        delta2 = abs(avg_time[i - 1] - avg_time[i - 2]) / avg_time[i - 2]
+                        delta1 = abs(avg_time[i - 2] - avg_time[i - 3]) / avg_time[i - 3]
 
-                    i += 1
-                
+                        # check if convergence criterion is met
+                        if (delta3 < params.convergence_threshold and
+                            delta2 < params.convergence_threshold and
+                            delta1 < params.convergence_threshold):
+                            converged = True
+                            converged_i.append(i)
+                            print(f"Convergence reached at iteration {i}")
+                            # print("===============================================================")
+
                 # after the system stabilization, obtain KPI's for the results_period
                 if converged:
                     # run ExMAS to obtain KPIs
                     for i in range(results_period):
-                        # print('iteration after converged ', i + 1, ' for', key)
-                        # print("-----------------------------------------------------")
+                        print('iteration after converged ', i + 1, ' for', key)
                         
                         df_sum_sh = iterate(df_sum)
                         df_kpis[i] = inData.sblts.res # obtain kpis after the system stabilized
+                        print("-----------------------------------------------------")
 
                         # times ---------------------------------------------------
                         # dataframe with times: {t_0, t_ttrav_sh_i, t_expected_i}
@@ -402,8 +419,9 @@ def simulate_MSA(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, p
                         df_sum.loc[df_sum_sh['indexes_sum'], ['p_SUM']] = df_sum_sh[['p_SUM']].values
                         df_sum.loc[df_sum_sh['indexes_sum'], ['t_expected']] = df_sum_sh[['t_expected']].values
                         df_sum.loc[df_sum_sh['indexes_sum'], ['nTrips']] = df_sum_sh[['nTrips']].values
-                        avg_time.append(df_sum.t_expected.mean()) # average expected travel times for ALL travelers
+                        # avg_time.append(df_sum.t_expected.mean()) # average expected travel times after stabilization
                 else:
+                    converged_i.append(0)
                     print(f"no convergence after {max_iter} iterations")
                     print("-----------------------------------------------------")
 
@@ -412,11 +430,17 @@ def simulate_MSA(gdf_areas, df_demo, gdf_centroid, od, od_probs, hubs, inData, p
                                         columns=['tw_PT_OD', 'tw_PT_HD', 'u_PT_OD', 'u_PT_HD', 'u_SUM_OD', 'p_SUM'])
             dfres = pd.concat([dfres, df_means], ignore_index=True)
             df_kpi_res = pd.concat([df_kpi_res, df_kpis], axis=1)
-        # print("===============================================================")
+            df_avg_times[repl] = avg_time
+            df_avg_ts_pt[repl] = avg_t_pt
+            df_avg_ts_sh[repl] = avg_t_sh
+            print()    
+        print("===============================================================")
         
         results[key] = {'avg_sim_res': dfres, 'sum_res': df_sum, 'kpis_res': df_kpi_res, 
-                        'avg_times': avg_time, 'times': df_times, 'asc_res': ascs}
+                        'avg_times': df_avg_times, 'avg_ts_sh': df_avg_ts_sh, 'avg_ts_pt': df_avg_ts_pt, 
+                        'times': df_times, 'asc_res': ascs, 'converged_is': converged_i}
     return results
+
 
 def calc_KPIs(df):
     ''' calculates such KPI indicaors: 
@@ -428,9 +452,9 @@ def calc_KPIs(df):
     input: dataframe with KPIs for each area
     output: dataframe with calculated KPI indicators for analysis '''
     for i, row in df.iterrows():
-        df.loc[i, 'del_VehHourTrav'] = abs(row['VehHourTrav'] - row['VehHourTrav_ns']) / row['VehHourTrav_ns']
-        df.loc[i, 'del_PassUtility'] = abs((row['PassUtility'] - row['PassUtility_ns']) / row['PassUtility_ns'])
-        df.loc[i, 'Occupancy'] = row['PassHourTrav'] / row['VehHourTrav']
-        df.loc[i, 'del_PassHourTrav'] = abs((row['PassHourTrav'] - row['PassHourTrav_ns']) / row['PassHourTrav_ns'])
-        df.loc[i, 'del_fleet_size'] = abs((row['fleet_size_shared'] - row['fleet_size_nonshared']) / row['fleet_size_nonshared'])
+        df.loc[i, 'del_VehHourTrav'] = abs(float(row['VehHourTrav']) - float(row['VehHourTrav_ns'])) / float(row['VehHourTrav_ns'])
+        df.loc[i, 'del_PassUtility'] = abs(float(row['PassUtility']) - float(row['PassUtility_ns'])) / float(row['PassUtility_ns'])
+        df.loc[i, 'Occupancy'] = float(row['PassHourTrav']) / float(row['VehHourTrav'])
+        df.loc[i, 'del_PassHourTrav'] = abs(float(row['PassHourTrav']) - float(row['PassHourTrav_ns'])) / float(row['PassHourTrav_ns'])
+        df.loc[i, 'del_fleet_size'] = abs(float(row['fleet_size_shared']) - float(row['fleet_size_nonshared'])) / float(row['fleet_size_nonshared'])
     return df
