@@ -1,5 +1,7 @@
 # Big file
 data/graphs/Krakow.csv
+data/krk_demographic.csv
+data/krk_ODM.xlsx
 
 .DS_Store
 
