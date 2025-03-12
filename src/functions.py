@@ -125,10 +125,12 @@ def define_demand(sum_areas, df_demo, gdf_centroid, od, od_probs, params, to_csv
         requests = area_sample[['origin_x', 'origin_y', 'destination_x', 'destination_y', 'treq']]
         if isinstance(sum_areas, pd.Series):
             res[sum_areas["name"]] = requests
-        else:
             if to_csv:
-                requests.to_csv('requests/reqs_' + str(sum_areas.name[i]) + '.csv', index=False)
-            res[sum_areas.name[i]] = requests
+                requests.to_csv('requests/reqs_' + str(sum_areas['name']) + '.csv', index=False)
+        else:
+            res[sum_areas["name"][i]] = requests
+            if to_csv:
+                requests.to_csv('requests/reqs_' + str(sum_areas['name'][i]) + '.csv', index=False)
     return res
 
 def PT_utility(requests, params):
