@@ -41,7 +41,7 @@ $$
 
 
 ## Input:
-* [csv file]((https://github.com/anniutina/SUM/blob/main/data/krk_demo_example.csv)) with population and address points distribution 
+* [csv file](https://github.com/anniutina/SUM/blob/main/data/krk_demo_example.csv) with population and address points distribution 
   
 * graphml file with [city graph](https://github.com/anniutina/SUM/blob/main/ExMAS/data/graphs/Krakow.graphml)
 * the [default](https://github.com/anniutina/SUM/blob/main/data/configs/default_SUM.json) file with configurations
